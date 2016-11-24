@@ -88,7 +88,7 @@ class LatexEquation(object):
         if eq.factor == "1":
             eq.factor = ""
 
-        equation = eq.lhs + "\n  = "
+        equation = eq.lhs + " = "
         metadata = dict()
 
         # translates the Maple information (with spacing)
@@ -170,7 +170,7 @@ class LatexEquation(object):
             if data_type in ["constraint", "substitution"]:  # mathmode
                 metadata += "  %  \\" + data_type + "{$" + replace_strings(data, SPECIAL) + "$}\n"
             else:
-                metadata += "  %  \\" + data_type + "{" + data + "}\n"\
+                metadata += "  %  \\" + data_type + "{" + data + "}\n"
 
         return "\\begin{equation}\n  " + self.equation + "\n" + metadata + "\\end{equation}\n"
 
