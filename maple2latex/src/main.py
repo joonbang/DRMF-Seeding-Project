@@ -3,8 +3,8 @@
 __author__ = "Joon Bang"
 __status__ = "Development"
 
-import os
-from translator import MapleEquation, LatexEquation
+import os, sys
+from translator import MapleEquation, LatexEquation, translate
 
 TABLE = dict()  # stores meaning of folder names
 with open("maple2latex\\data\\section_names") as name_info:
@@ -105,5 +105,30 @@ def translate_files(root_directory, output_file):
         with open("maple2latex\\out\\primer") as primer:
             test.write(primer.read() + result.rstrip() + "\n\n\\end{document}\n")
 
+
+def translate_equation():
+    """Translates Maple equations entered through command line until 'quit' command is entered."""
+    lines = list()
+    while True:
+        x = raw_input()
+        if x in ["):", ");"]:
+            print str(LatexEquation.from_maple(MapleEquation(lines)))
+        elif x == "quit":
+            sys.exit(0)
+        else:
+            lines.append(x)
+
+
+def usage():
+    print "Call 'main.py -et' to enter single-equation translate mode.\nCall 'main.py -dt functions_dir output_file' " \
+          "to translate all Maple files within functions_dir and put the output.tex into output_file."
+    sys.exit(0)
+
+
 if __name__ == '__main__':
-    translate_files("maple2latex\\functions", "maple2latex\\out\\test.tex")
+    if len(sys.argv) == 2 and sys.argv[1] == '-et':
+        translate_equation()
+    elif len(sys.argv) == 4 and sys.argv[1] == '-dt':
+        translate_files(sys.argv[2], sys.argv[3])
+    else:
+        usage()
