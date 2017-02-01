@@ -1,5 +1,9 @@
 # Maple CFSF Seeding Project
-This project uses Python to convert the continued fractions for special functions library, written in Maple, into LaTeX. 
+This project uses Python to convert the continued fractions for special functions library, written in Maple, into LaTeX,
+using DRMF macros.
+
+Please note that the project was specifically written to work with the CFSF library. As such, it may not function
+as expected for non-CFSF Maple equations.
 
 ## Prerequisites
 This program requires Python 2.6+ to run.
