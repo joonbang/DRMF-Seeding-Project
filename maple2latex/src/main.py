@@ -119,9 +119,18 @@ def translate_equation():
             lines.append(x)
 
 
+def translate_formulae():
+    while True:
+        x = raw_input()
+        if x == "":
+            break
+        print translate(x)
+
+
 def usage():
     print "Call 'main.py -et' to enter single-equation translate mode.\nCall 'main.py -dt functions_dir output_file' " \
-          "to translate all Maple files within functions_dir and put the output.tex into output_file."
+          "to translate all Maple files within functions_dir and put the output.tex into output_file.\n" \
+          "Call 'main.py -ft' to enter formula translate mode."
     sys.exit(0)
 
 
@@ -130,5 +139,7 @@ if __name__ == '__main__':
         translate_equation()
     elif len(sys.argv) == 4 and sys.argv[1] == '-dt':
         translate_files(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 2 and sys.argv[1] == '-ft':
+        translate_formulae()
     else:
         usage()
