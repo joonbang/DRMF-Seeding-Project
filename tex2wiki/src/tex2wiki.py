@@ -1,25 +1,19 @@
+try:
+    from typing import *
+except ImportError:
+    pass
+
+import copy
+
 __author__ = "Joon Bang"
 __status__ = "Development"
 
-import copy
-import compare_files
-import csv
-import sys
-
-GLOSSARY_LOCATION = "tex2wiki/data/new.Glossary.csv"
+# CONSTANTS
 METADATA_TYPES = ["substitution", "constraint"]
 METADATA_MEANING = {"substitution": "Substitution(s)", "constraint": "Constraint(s)"}
 
-# TODO: Fix bugs with the special cases formula formatting; causes issues with math id="...", spantext
-# TODO: Notes about bugs of old (Azeem) output:
-# TODO: 09.25:27 (headers are bugged)
-# TODO: 09.07:07 (misses \iunit)
-# TODO: 09.07:19 (misses \cos@@)
-# TODO: 09.08:19 (headers are bugged)
-# TODO: 09.15:17 (misses \HyperpFq)
-# TODO: 09.15:19 (misses \cos@@)
 
-
+# CONTAINER CLASSES
 class LatexEquation(object):
     def __init__(self, label, raw_label, equation, metadata):
         self.label = label
@@ -29,41 +23,6 @@ class LatexEquation(object):
 
     def __str__(self):
         return self.label + "\n" + self.equation + "\n" + str(self.metadata)
-
-    @staticmethod
-    def make_from_raw(raw):
-        equations = raw[:-1]
-        for i, equation in enumerate(equations):
-            # formula stuff
-            try:
-                raw_formula, formula = format_formula(get_data_str(equation, latex="\\formula"))
-            except IndexError:  # there is no formula.
-                break
-
-            equation = equation.split("\n")
-
-            # get metadata
-            raw_metadata = ""
-
-            j = 0
-            while j < len(equation):
-                if "%" in equation[j]:
-                    raw_metadata += equation.pop(j)[1:].strip().strip("\n") + "\n"
-                else:
-                    j += 1
-
-            metadata = dict()
-            for data_type in METADATA_TYPES:
-                temp = format_metadata(get_data_str(raw_metadata, latex="\\" + data_type)).split("\n")
-                for k, line in enumerate(temp):
-                    if line.rstrip().endswith("&"):
-                        temp[k] = line.rstrip() + "<br />"
-
-                metadata[data_type] = "\n".join(temp)
-
-            equations[i] = LatexEquation(formula, raw_formula, '\n'.join(equation), metadata)
-
-        return equations
 
 
 class DataUnit(object):
@@ -83,56 +42,55 @@ class DataUnit(object):
         return result
 
 
-def generate_html(tag_name, text, options=None, spacing=2):
-    # type: (str, str(, dict, bool)) -> str
-    """
-    Generates an html tag, with optional html parameters.
-    When spacing = 0, there should be no spacing.
-    When spacing = 1, the tag, text, and end tag are padded with spaces.
-    When spacing = 2, the tag, text, and end tag are padded with newlines.
-    """
-    if options is None:
-        options = {}
+# HELPER METHODS
+def find_all(pattern, string):
+    # type: (str, str) -> Generator
+    """Finds all instances of pattern in string."""
 
-    option_text = [key + "=\"" + value + "\"" for key, value in options.iteritems()]
-    result = "<" + tag_name + " " * (option_text != []) + ", ".join(option_text) + ">"
-
-    if spacing == 2:
-        result += "\n" + text + "\n</" + tag_name + ">\n"
-    elif spacing == 1:
-        result += " " + text + " </" + tag_name + ">"
-    else:
-        result += text + "</" + tag_name + ">"
-
-    return result
+    i = string.find(pattern)
+    while i != -1:
+        yield i
+        i = string.find(pattern, i + 1)
 
 
-def generate_math_html(text, options=None, spacing=2):
-    # type: (str(, dict, int)) -> str
-    """Special case of generate_html, where the tag is "<math>"."""
-    if options is None:
-        options = {}
+def find_end(text, left_delimiter, right_delimiter, start=0):
+    # type: (str, str, str, int) -> int
+    """A .find that accounts for nested delimiters."""
+    net = 0  # left delimiters encountered - right delimiters encountered
+    for i, ch in enumerate(text[start:]):
+        if ch == left_delimiter:
+            net += 1
+        elif ch == right_delimiter:
+            if net == 1:
+                return i + start
+            else:
+                net -= 1
 
-    option_text = [key + "=\"" + value + "\"" for key, value in options.iteritems()]
-    result = "<math" + " " * (option_text != []) + ", ".join(option_text) + ">"
-
-    if spacing == 2:
-        result += "{\\displaystyle \n" + text + "\n}</math>\n"
-    elif spacing == 1:
-        result += "{\\displaystyle " + text + "}</math>\n"
-    else:
-        result += "{\\displaystyle " + text + "}</math>"
-
-    return result
+    return -1
 
 
-def generate_link(left, right=""):
-    # type: (str(, str)) -> str
-    """Generates a MediaWiki link."""
-    if right == "":
-        return "[[" + left + "|" + left + "]]"
+def get_data_str(text, latex=""):
+    # type: (str) -> str
+    """Gets the string in between curly brackets."""
+    start = text.find(latex + "{")
 
-    return "[[" + left + "|" + right + "]]"
+    if start == -1:
+        return ""
+
+    return text[start + len(latex + "{"):find_end(text, "{", "}", start)]
+
+
+def get_macro_name(macro):
+    # type: (str) -> str
+    """Obtains the macro name."""
+    macro_name = ""
+    for ch in macro:
+        if ch.isalpha() or ch == "\\":
+            macro_name += ch
+        elif ch in ["@", "{", "["]:
+            break
+
+    return macro_name
 
 
 def multi_split(s, seps):
@@ -147,6 +105,53 @@ def multi_split(s, seps):
     return res
 
 
+def remove_break(string):
+    # (str) -> str
+    """Removes <br /> from the end of a string."""
+
+    while string.rstrip("\n").endswith("<br />"):
+        string = string.rstrip("\n")[:-6]
+
+    return string
+
+
+# DATA EXTRACTION
+def extract_equations(raw):
+    equations = raw[:-1]
+    for i, equation in enumerate(equations):
+        # formula stuff
+        try:
+            raw_formula, formula = format_formula(get_data_str(equation, latex="\\formula"))
+        except IndexError:  # there is no formula.
+            break
+
+        equation = equation.split("\n")
+
+        # get metadata
+        raw_metadata = ""
+
+        j = 0
+        while j < len(equation):
+            if "%" in equation[j]:
+                raw_metadata += equation.pop(j)[1:].strip().strip("\n") + "\n"
+            else:
+                j += 1
+
+        metadata = dict()
+        for data_type in METADATA_TYPES:
+            temp = format_metadata(get_data_str(raw_metadata, latex="\\" + data_type)).split("\n")
+            for k, line in enumerate(temp):
+                if line.rstrip().endswith("&"):
+                    temp[k] = line.rstrip() + "<br />"
+
+            metadata[data_type] = "\n".join(temp)
+
+        equations[i] = LatexEquation(formula, raw_formula, '\n'.join(equation), metadata)
+
+    return equations
+
+
+# FORMATTING METHODS
 def convert_dollar_signs(string):
     # type: (str) -> str
     """Converts dollar signs to html for math mode."""
@@ -166,7 +171,7 @@ def convert_dollar_signs(string):
 
 
 def format_formula(formula):
-    # (list) -> list
+    # type: (str) -> Tuple[List[str], Any]
     """Obtain the raw formula (the numerical values), as well as the formatted version."""
     if formula[0] == ":":  # handling for Jacobi special stuff
         return [str(int(formula[1:]))], formula[1:].zfill(2)
@@ -219,35 +224,9 @@ def format_metadata(string):
     return result.strip()
 
 
-def find_end(text, left_delimiter, right_delimiter, start=0):
-    # type: (str, str, str(, int)) -> int
-    """A .find that accounts for nested delimiters."""
-    net = 0  # left delimiters encountered - right delimiters encountered
-    for i, ch in enumerate(text[start:]):
-        if ch == left_delimiter:
-            net += 1
-        elif ch == right_delimiter:
-            if net == 1:
-                return i + start
-            else:
-                net -= 1
-
-    return -1
-
-
-def get_data_str(text, latex=""):
-    # type: (str(, str)) -> str
-    """Gets the string in between curly brackets."""
-    start = text.find(latex + "{")
-
-    if start == -1:
-        return ""
-
-    return text[start + len(latex + "{"):find_end(text, "{", "}", start)]
-
-
+# WIKITEXT GENERATION HELPER METHODS
 def generate_nav_bar(info):
-    # type: (list) -> list
+    # type: (list) -> Tuple[Union[str, unicode], Union[str, unicode]]
     """Generates the navigation bar code for a page."""
     links = list()
     for link, text in info:
@@ -265,30 +244,58 @@ def generate_nav_bar(info):
     return header, footer
 
 
-def get_macro_name(macro):
-    # type: (str) -> str
-    """Obtains the macro name."""
-    macro_name = ""
-    for ch in macro:
-        if ch.isalpha() or ch == "\\":
-            macro_name += ch
-        elif ch in ["@", "{", "["]:
-            break
+def generate_html(tag_name, text, options=None, spacing=2):
+    """
+    Generates an html tag, with optional html parameters.
+    When spacing = 0, there should be no spacing.
+    When spacing = 1, the tag, text, and end tag are padded with spaces.
+    When spacing = 2, the tag, text, and end tag are padded with newlines.
+    """
+    if options is None:
+        options = {}
 
-    return macro_name
+    option_text = [key + "=\"" + value + "\"" for key, value in options.iteritems()]
+    result = "<" + tag_name + " " * (option_text != []) + ", ".join(option_text) + ">"
+
+    if spacing == 2:
+        result += "\n" + text + "\n</" + tag_name + ">\n"
+    elif spacing == 1:
+        result += " " + text + " </" + tag_name + ">"
+    else:
+        result += text + "</" + tag_name + ">"
+
+    return result
 
 
-def find_all(pattern, string):
-    # type: (str, str) -> generator
-    """Finds all instances of pattern in string."""
+def generate_math_html(text, options=None, spacing=2):
+    # type: (str, dict, int) -> str
+    """Special case of generate_html, where the tag is "<math>"."""
+    if options is None:
+        options = {}
 
-    i = string.find(pattern)
-    while i != -1:
-        yield i
-        i = string.find(pattern, i + 1)
+    option_text = [key + "=\"" + value + "\"" for key, value in options.iteritems()]
+    result = "<math" + " " * (option_text != []) + ", ".join(option_text) + ">"
+
+    if spacing == 2:
+        result += "{\\displaystyle \n" + text + "\n}</math>\n"
+    elif spacing == 1:
+        result += "{\\displaystyle " + text + "}</math>\n"
+    else:
+        result += "{\\displaystyle " + text + "}</math>"
+
+    return result
 
 
-def get_symbols(text, glossary):
+def generate_link(left, right=""):
+    # type: (str, str) -> str
+    """Generates a MediaWiki link."""
+    if right == "":
+        return "[[" + left + "|" + left + "]]"
+
+    return "[[" + left + "|" + right + "]]"
+
+
+def generate_symbols_list(text, glossary):
     # type: (str, dict) -> str
     """Generates span text based on symbols present in text. Equivalent of old symbols_list module."""
     symbols = list()
@@ -345,8 +352,9 @@ def get_symbols(text, glossary):
     return remove_break(span_text)  # slice off the extra br and endline
 
 
-def create_general_pages(data, title_string=""):
-    # type: (DataUnit(, str)) -> str
+# WIKITEXT GENERATION
+def create_equation_list(data, title_string=""):
+    # type: (DataUnit, str) -> str
     """Creates the 'index' pages for each section. Corrected for use of DataUnit."""
     ret = ""
 
@@ -372,8 +380,24 @@ def create_general_pages(data, title_string=""):
     return ret
 
 
+def create_equation_pages(data, glossary, title_string):
+    # type: (DataUnit, dict) -> str
+    """Creates specific pages for each formula. Corrected for use with DataUnit."""
+
+    formulae = [title_string] + make_formula_list(data)[0][:-1] + [title_string]
+
+    i = 0
+    pages = list()
+    for j, unit in enumerate(data.subunits):
+        res, i = equation_page_format(unit, unit.title, formulae, glossary, i)
+        pages += res
+        i += 1
+
+    return "\n".join(pages) + "\n"
+
+
 def equation_list_format(data, depth=0):
-    # type: (DataUnit(, str)) -> str
+    # type: (DataUnit, int) -> Tuple[Union[Union[str], Any], bool]
     """Format the equations in a section into a list style."""
 
     border = "=" * (2 + int(depth >= 2))  # '==' when depth < 2; '===' when depth >= 2
@@ -405,40 +429,6 @@ def equation_list_format(data, depth=0):
         text = remove_break(text)
 
     return text, metadata == list()
-
-
-def create_specific_pages(data, glossary, title_string):
-    # type: (DataUnit, dict) -> str
-    """Creates specific pages for each formula. Corrected for use with DataUnit."""
-
-    formulae = [title_string] + make_formula_list(data)[0][:-1] + [title_string]
-
-    i = 0
-    pages = list()
-    for j, unit in enumerate(data.subunits):
-        res, i = equation_page_format(unit, unit.title, formulae, glossary, i)
-        pages += res
-        i += 1
-
-    return "\n".join(pages) + "\n"
-
-
-def make_formula_list(info, depth=0):
-    # (str(, int)) -> (str, int)
-    """Generates the list of formulae contained in the file. Used for generating headers & footers."""
-
-    formulae = list()
-    if len(info.subunits) and type(info.subunits[0]) != DataUnit:
-        for eq in info.subunits:
-            formulae.append("Formula:" + eq.label)
-    else:
-        for subunit in info.subunits:
-            formulae += make_formula_list(subunit, depth + 1)[0]
-
-    if depth < 2:
-        formulae.append(info.title)
-
-    return formulae, depth
 
 
 def equation_page_format(info, title, formulae, glossary, i=0):
@@ -478,7 +468,7 @@ def equation_page_format(info, title, formulae, glossary, i=0):
 
             # symbols list section
             result += "== Symbols List ==\n\n"
-            result += get_symbols(result, glossary) + "\n<br />\n\n"
+            result += generate_symbols_list(result, glossary) + "\n<br />\n\n"
 
             # bibliography section
             result += "== Bibliography==\n\n"  # TODO: Fix typo after feature parity has been met
@@ -505,14 +495,22 @@ def equation_page_format(info, title, formulae, glossary, i=0):
     return pages, i
 
 
-def remove_break(string):
-    # (str) -> str
-    """Removes <br /> from the end of a string."""
+def make_formula_list(info, depth=0):
+    # type: (DataUnit, int) -> (str, int)
+    """Generates the list of formulae contained in the file. Used for generating headers & footers."""
 
-    while string.rstrip("\n").endswith("<br />"):
-        string = string.rstrip("\n")[:-6]
+    formulae = list()
+    if len(info.subunits) and type(info.subunits[0]) != DataUnit:
+        for eq in info.subunits:
+            formulae.append("Formula:" + eq.label)
+    else:
+        for subunit in info.subunits:
+            formulae += make_formula_list(subunit, depth + 1)[0]
 
-    return string
+    if depth < 2:
+        formulae.append(info.title)
+
+    return formulae, depth
 
 
 def section_split(string, sub=0):
@@ -529,9 +527,9 @@ def section_split(string, sub=0):
         for i, equation in enumerate(equations[:-1]):
             equations[i] = equation.split("\\begin{equation}", 1)[1].strip()
 
-        equations = LatexEquation.make_from_raw(equations)
+        wrapped_equations = extract_equations(equations)
 
-        return DataUnit(title, equations)
+        return DataUnit(title, wrapped_equations)
 
     chunk_data = list()  # list of DataSection
 
@@ -541,52 +539,3 @@ def section_split(string, sub=0):
     title = get_data_str(string[0]).replace("$", "''")
 
     return DataUnit(title, chunk_data)
-
-
-def usage():
-    """Prints usage of program."""
-
-    print "Usage: python tex2wiki.py filename1 filename2 ...\nNote: filename(s) should NOT include the extension."
-    sys.exit(0)
-
-
-def main(input_file, output_file, title):
-    # (str, str, str) -> None
-    """Converts a .tex file to MediaWiki page(s)."""
-
-    with open(input_file) as f:
-        text = f.read()
-
-    glossary = dict()
-    with open(GLOSSARY_LOCATION, "rb") as csv_file:
-        glossary_file = csv.reader(csv_file, delimiter=',', quotechar='\"')
-        for row in glossary_file:
-            glossary[get_macro_name(row[0])] = row
-
-    text = text.split("\\begin{document}", 1)[1]
-
-    info = section_split(text)  # creates tree, split into section, subsection, subsubsection, etc.
-
-    output = create_general_pages(info, title) + create_specific_pages(info, glossary, title)
-    output = output.replace("<br /><br />", "<br />")
-
-    with open(output_file, "w") as f:
-        f.write(output)
-
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        usage()
-
-    for i, filename in enumerate(sys.argv[1:]):
-        main(
-            input_file=filename + ".tex",
-            output_file=filename + ".mmd",
-            title="Orthogonal Polynomials"
-        )
-
-        print "Complete. Now comparing files..."
-
-        compare_files.compare(filename.replace("/", "\\"), i)  # only works for Windows
-
-        print "File comparison successful."
