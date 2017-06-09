@@ -1,0 +1,16 @@
+{
+    "orthogonal_polynomials": {
+        "title": "Orthogonal Polynomials",
+        "metadata": {
+            "substitution": "Substitution(s)", 
+            "constraint": "Constraint(s)"
+        },
+        
+        "label_info": {
+            "id": "\\formula",
+            "format": ""
+        }
+        
+    }
+    
+}

@@ -9,9 +9,9 @@ __author__ = "Joon Bang"
 __status__ = "Development"
 
 # CONSTANTS
-METADATA_TYPES = ["substitution", "constraint"]
-METADATA_MEANING = {"substitution": "Substitution(s)", "constraint": "Constraint(s)"}
-
+METADATA_TYPES = []
+METADATA_MEANING = {}
+label_tag = ""
 
 # CONTAINER CLASSES
 class LatexEquation(object):
@@ -25,19 +25,19 @@ class LatexEquation(object):
         return self.label + "\n" + self.equation + "\n" + str(self.metadata)
 
 
-class DataUnit(object):
-    def __init__(self, title, subunits):
+class Section(object):
+    def __init__(self, title, subsections):
         self.title = title
-        self.subunits = subunits
+        self.subsections = subsections
 
     def __str__(self):
         result = self.title + "\n"
 
-        if type(self.subunits) == list and len(self.subunits) and type(self.subunits[0]) == DataUnit:
-            for sub in self.subunits:
+        if type(self.subsections) == list and len(self.subsections) and type(self.subsections[0]) == Section:
+            for sub in self.subsections:
                 result += str(sub) + "\n"
         else:
-            result += str("\n".join([str(eq) for eq in self.subunits])) + "\n"
+            result += str(self.subsections) + "\n" # str("\n".join([str(eq) for eq in self.subsections])) + "\n"
 
         return result
 
@@ -354,14 +354,14 @@ def generate_symbols_list(text, glossary):
 
 # WIKITEXT GENERATION
 def create_equation_list(data, title_string=""):
-    # type: (DataUnit, str) -> str
-    """Creates the 'index' pages for each section. Corrected for use of DataUnit."""
+    # type: (Section, str) -> str
+    """Creates the 'index' pages for each section. Corrected for use of Section."""
     ret = ""
 
-    section_names = [title_string] + [unit.title for unit in data.subunits] + [title_string]
+    section_names = [title_string] + [section.title for section in data.subsections] + [title_string]
 
-    # deep down, subunits is a list of LatexEquation(s)
-    for i, section in enumerate(data.subunits):
+    # deep down, subsections is a list of LatexEquation(s)
+    for i, section in enumerate(data.subsections):
         result = "drmf_bof\n'''" + section.title.replace("''", "") + "'''\n{{DISPLAYTITLE:" + section.title + "}}\n"
 
         # get header and footer
@@ -381,15 +381,15 @@ def create_equation_list(data, title_string=""):
 
 
 def create_equation_pages(data, glossary, title_string):
-    # type: (DataUnit, dict) -> str
-    """Creates specific pages for each formula. Corrected for use with DataUnit."""
+    # type: (Section, dict) -> str
+    """Creates specific pages for each formula. Corrected for use with Section."""
 
     formulae = [title_string] + make_formula_list(data)[0][:-1] + [title_string]
 
     i = 0
     pages = list()
-    for j, unit in enumerate(data.subunits):
-        res, i = equation_page_format(unit, unit.title, formulae, glossary, i)
+    for j, section in enumerate(data.subsections):
+        res, i = equation_page_format(section, section.title, formulae, glossary, i)
         pages += res
         i += 1
 
@@ -397,32 +397,33 @@ def create_equation_pages(data, glossary, title_string):
 
 
 def equation_list_format(data, depth=0):
-    # type: (DataUnit, int) -> Tuple[Union[Union[str], Any], bool]
+    # type: (Section, int) -> Tuple[Union[Union[str], Any], bool]
     """Format the equations in a section into a list style."""
-
+    
     border = "=" * (2 + int(depth >= 2))  # '==' when depth < 2; '===' when depth >= 2
     text = "%s %s %s\n\n" % (border, data.title, border)
 
     contains_deeper_depth = False
     metadata = list()
-    for i, unit in enumerate(data.subunits):
-        if type(unit) == LatexEquation:
-            equation = generate_math_html(unit.equation, options={"id": unit.label})
+    
+    for i, section in enumerate(data.subsections):
+        if type(section) == LatexEquation:
+            equation = generate_math_html(section.equation, options={"id": section.label})
             metadata = list()
-            for data_type in sorted(unit.metadata.keys()):
-                if unit.metadata[data_type] != "":
+            for data_type in sorted(section.metadata.keys()):
+                if section.metadata[data_type] != "":
                     metadata.append(
-                        generate_html("div", METADATA_MEANING[data_type] + ": " + unit.metadata[data_type],
+                        generate_html("div", METADATA_MEANING[data_type] + ": " + section.metadata[data_type],
                                       options={"align": "right"}, spacing=0)
                     )
 
             text += equation.rstrip("\n") + "\n" * bool(len(metadata)) + "<br />\n".join(metadata) + "<br />\n"
         else:
             contains_deeper_depth = True
-            temp = equation_list_format(unit, depth + 1)
+            temp = equation_list_format(section, depth + 1)
             text = text.rstrip("\n") + "\n\n" + temp[0]
 
-            if depth + 1 >= 2 and i == len(data.subunits) - 1 and temp[1]:
+            if depth + 1 >= 2 and i == len(data.subsections) - 1 and temp[1]:
                 text = remove_break(text)
 
     if depth < 2 and metadata == list() and not contains_deeper_depth:
@@ -432,12 +433,12 @@ def equation_list_format(data, depth=0):
 
 
 def equation_page_format(info, title, formulae, glossary, i=0):
-    # (DataUnit, str, list, dict(, int)) -> (str, int)
+    # type: (Section, str, list, dict(, int)) -> (str, int)
     """Formats equations into individual MediaWiki pages."""
     pages = list()
 
-    if len(info.subunits) and type(info.subunits[0]) != DataUnit:
-        for eq in info.subunits:
+    if len(info.subsections) and type(info.subsections[0]) != Section:
+        for eq in info.subsections:
             # get header and footer
             center_text = (title + "#" + eq.label).replace(" ", "_")
             middle = "formula in " + title
@@ -487,8 +488,8 @@ def equation_page_format(info, title, formulae, glossary, i=0):
 
             i += 1
     else:
-        for subunit in info.subunits:
-            res = equation_page_format(subunit, title, formulae, glossary, i)
+        for subsection in info.subsections:
+            res = equation_page_format(subsection, title, formulae, glossary, i)
             pages += res[0]
             i = res[1]
 
@@ -496,16 +497,16 @@ def equation_page_format(info, title, formulae, glossary, i=0):
 
 
 def make_formula_list(info, depth=0):
-    # type: (DataUnit, int) -> (str, int)
+    # type: (Section, int) -> (str, int)
     """Generates the list of formulae contained in the file. Used for generating headers & footers."""
 
     formulae = list()
-    if len(info.subunits) and type(info.subunits[0]) != DataUnit:
-        for eq in info.subunits:
+    if len(info.subsections) and type(info.subsections[0]) != Section:
+        for eq in info.subsections:
             formulae.append("Formula:" + eq.label)
     else:
-        for subunit in info.subunits:
-            formulae += make_formula_list(subunit, depth + 1)[0]
+        for subsection in info.subsections:
+            formulae += make_formula_list(subsection, depth + 1)[0]
 
     if depth < 2:
         formulae.append(info.title)
@@ -514,11 +515,11 @@ def make_formula_list(info, depth=0):
 
 
 def section_split(string, sub=0):
-    # type: (str) -> DataUnit
-    """Split string into DataTree objects."""
+    # type: (str) -> Section
+    """Split string into Section objects."""
 
     string = string.split("\\" + sub * "sub" + "section")
-
+    
     # base case; when depth too far
     if len(string) == 1:
         title = get_data_str(string[0]).replace("$", "''")
@@ -529,13 +530,22 @@ def section_split(string, sub=0):
 
         wrapped_equations = extract_equations(equations)
 
-        return DataUnit(title, wrapped_equations)
+        return Section(title, wrapped_equations)
 
-    chunk_data = list()  # list of DataSection
+    chunk_data = list()  # list of Sections
 
     for chunk in string[1:]:
         chunk_data.append(section_split(chunk, sub + 1))
 
     title = get_data_str(string[0]).replace("$", "''")
 
-    return DataUnit(title, chunk_data)
+    return Section(title, chunk_data)
+
+
+def load_preset(preset):
+    global METADATA_TYPES
+    global METADATA_MEANING
+    global label_tag
+    METADATA_TYPES = list(preset["metadata"])
+    METADATA_MEANING = preset["metadata"]
+    label_tag = preset["label_info"]["id"]
